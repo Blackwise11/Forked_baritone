@@ -24,8 +24,11 @@ import baritone.api.utils.Helper;
 import baritone.api.utils.IInputOverrideHandler;
 import baritone.api.utils.input.Input;
 import baritone.behavior.Behavior;
+import baritone.process.MineProcess;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.player.KeyboardInput;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -57,8 +60,10 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
 
     /**
      * FTB Ultimine's keybind, discovered at runtime (no compile-time dependency). Held down
-     * while Baritone is breaking a block so Ultimine veins the whole deposit, like a
-     * vein-miner. Null until found — see {@link #tickUltimineKey(boolean)}.
+     * while Baritone is breaking one of the blocks a {@code #mine} command asked for, so
+     * Ultimine veins the whole deposit, like a vein-miner — but NOT while Baritone merely digs
+     * through unrelated blocks to reach the target. Null until found — see
+     * {@link #tickUltimineKey(boolean)}.
      *
      * <p><b>Known risk:</b> if Ultimine polls the physical GLFW key instead of
      * {@link KeyMapping#isDown()}, this does nothing (harmless). Needs in-game verification
@@ -162,8 +167,12 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
     // ------------------------------------------------------------ FTB Ultimine
 
     /**
-     * Hold FTB Ultimine's keybind while Baritone is breaking a block, release otherwise.
-     * Called every tick from {@link #onTick} — note that {@code clearAllKeys()} (which several
+     * Hold FTB Ultimine's keybind while Baritone is breaking one of the blocks a {@code #mine}
+     * command asked for, release otherwise. Mere block breaking is not enough — Baritone digs
+     * through plenty of unrelated blocks while traveling to the target, and veining those
+     * would chew up the terrain (and the pickaxe) for no reason. See {@link #isBreakingMineTarget()}.
+     *
+     * <p>Called every tick from {@link #onTick} — note that {@code clearAllKeys()} (which several
      * processes call every tick) also releases the key; this re-asserts it in the same tick
      * while breaking continues, so at worst a cancel-then-continue transition costs one tick
      * of the overlay.
@@ -189,12 +198,30 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
                 return;
             }
         }
-        if (breaking) {
+        if (breaking && isBreakingMineTarget()) {
             ultimineKey.setDown(true);
             ultimineHeld = true;
         } else {
             releaseUltimineKey();
         }
+    }
+
+    /**
+     * Whether the block Baritone is currently breaking is an actual {@code #mine} target —
+     * the same ray-traced block {@link BlockBreakHelper} is hitting, checked against the
+     * MineProcess filter. Returns false outside of a mine command (pathing, building, combat,
+     * tunneling, ...) so those never trigger Ultimine.
+     */
+    private boolean isBreakingMineTarget() {
+        HitResult trace = ctx.objectMouseOver();
+        if (trace == null || trace.getType() != HitResult.Type.BLOCK) {
+            return false;
+        }
+        MineProcess mine = baritone.getMineProcess();
+        if (!mine.isActive()) {
+            return false;
+        }
+        return mine.isMineTarget(((BlockHitResult) trace).getBlockPos());
     }
 
     /**
