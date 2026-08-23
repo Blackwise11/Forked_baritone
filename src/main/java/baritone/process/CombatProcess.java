@@ -37,7 +37,7 @@ import baritone.utils.BaritoneProcessHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -1308,20 +1308,20 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
             }
         }
         if (best >= 0) {
-            player.getInventory().setSelectedSlot(best);
+            player.getInventory().selected = best;
             weaponType = bestType;
         }
     }
 
-    /** Is this stack a sword? 26.1 swords are data-driven (no {@code SwordItem} class), so check the id. */
+    /** Is this stack a sword? Check the item id — works on both 26.1 (data-driven) and 1.21.1. */
     private static boolean isSword(ItemStack stack) {
-        Identifier key = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return key != null && key.getPath().endsWith("_sword");
     }
 
-    /** Tools we never want to swing in combat (mining/harvesting tools). 26.1 has no PickaxeItem class. */
+    /** Tools we never want to swing in combat (mining/harvesting tools). */
     private static boolean isUnwantedTool(ItemStack stack) {
-        Identifier key = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
         if (key == null) return false;
         String p = key.getPath();
         // check _pickaxe before _axe (a pickaxe path ends in "axe" too)
@@ -1353,14 +1353,14 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         Player player = ctx.player();
         if (player == null) return;
         if (priorWeaponSlot < 0) {
-            priorWeaponSlot = player.getInventory().getSelectedSlot();
+            priorWeaponSlot = player.getInventory().selected;
         }
     }
 
     /** Restore the hotbar slot recorded by {@link #recordPriorWeaponSlot}, then clear it. */
     private void restorePriorWeaponSlot() {
         if (priorWeaponSlot >= 0 && ctx.player() != null) {
-            ctx.player().getInventory().setSelectedSlot(priorWeaponSlot);
+            ctx.player().getInventory().selected = priorWeaponSlot;
         }
         priorWeaponSlot = -1;
     }
@@ -1389,7 +1389,7 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         if (player == null) return;
         int slot = findBowSlot(player);
         if (slot < 0) return;
-        player.getInventory().setSelectedSlot(slot);
+        player.getInventory().selected = slot;
         weaponType = WeaponType.BOW;
     }
 

@@ -18,7 +18,7 @@
 package baritone.process.combat;
 
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -78,9 +78,9 @@ public sealed interface HuntFilter {
         if (s.isEmpty() || s.equals("nearest")) return Optional.of(new Nearest());
         if (s.equals("all")) return Optional.of(new All());
         // accept "zombie" or "minecraft:zombie"
-        Identifier id = s.contains(":")
-                ? Identifier.tryParse(s)
-                : Identifier.fromNamespaceAndPath("minecraft", s);
+        ResourceLocation id = s.contains(":")
+                ? ResourceLocation.tryParse(s)
+                : ResourceLocation.fromNamespaceAndPath("minecraft", s);
         if (id == null) return Optional.empty();
         return BuiltInRegistries.ENTITY_TYPE.getOptional(id)
                 .map(type -> (HuntFilter) new ByType(type));

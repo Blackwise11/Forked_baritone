@@ -114,8 +114,8 @@ public final class SurvivalProcess extends BaritoneProcessHelper implements Abst
             forceEat = false;
             return;
         }
-        priorSlot = ctx.player().getInventory().getSelectedSlot();
-        ctx.player().getInventory().setSelectedSlot(foodSlot);
+        priorSlot = ctx.player().getInventory().selected;
+        ctx.player().getInventory().selected = foodSlot;
         // Kick off the use. processRightClick sends the use-item packet and calls startUsingItem,
         // setting useItemRemainingTicks. But that alone only lasts one tick: vanilla handleKeybinds
         // sees options.keyUse as released (Baritone's Input.CLICK_RIGHT force does NOT feed the use
@@ -170,7 +170,7 @@ public final class SurvivalProcess extends BaritoneProcessHelper implements Abst
             }
         }
         if (priorSlot >= 0 && ctx.player() != null) {
-            ctx.player().getInventory().setSelectedSlot(priorSlot);
+            ctx.player().getInventory().selected = priorSlot;
         }
         priorSlot = -1;
         eating = false;
