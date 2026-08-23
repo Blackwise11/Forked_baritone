@@ -56,6 +56,13 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
     private final Deque<Float> smoothYawBuffer;
     private final Deque<Float> smoothPitchBuffer;
 
+    /**
+     * Whether the current target was eased (humanized) this tick. Set in PRE when easing runs, read
+     * in POST to skip the {@link Settings#smoothLook} averaging that would otherwise clobber the
+     * eased rotation with a raw-target average.
+     */
+    private boolean easedThisTick;
+
     public LookBehavior(Baritone baritone) {
         super(baritone);
         this.processor = new AimProcessor(baritone.getPlayerContext());
@@ -65,7 +72,12 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
 
     @Override
     public void updateTarget(Rotation rotation, boolean blockInteract) {
-        this.target = new Target(rotation, Target.Mode.resolve(ctx, blockInteract));
+        this.updateTarget(rotation, blockInteract, false);
+    }
+
+    @Override
+    public void updateTarget(Rotation rotation, boolean blockInteract, boolean ease) {
+        this.target = new Target(rotation, Target.Mode.resolve(ctx, blockInteract), ease);
     }
 
     @Override
@@ -95,7 +107,27 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
                 }
 
                 this.prevRotation = new Rotation(ctx.player().getYRot(), ctx.player().getXRot());
-                final Rotation actual = this.processor.peekRotation(this.target.rotation);
+                final Rotation desired = this.target.rotation;
+                final Rotation actual;
+                // Humanized camera easing: only for client-visible targets that opt in (ease=true),
+                // never for elytra, and only when the setting is on. Block-interact raytrace targets
+                // opt out (ease=false) so objectMouseOver stays pixel-exact. Easing moves the applied
+                // rotation a bounded step toward the desired each tick instead of dumping the whole
+                // delta in one tick — without this, AimProcessor.calculateMouseMove quantizes the full
+                // target-prev gap into a single-tick turn, the "too quick, bot-like flick". SERVER-mode
+                // (silent, free-look pathing) targets aren't visible so easing them is a no-op; the
+                // CLIENT gate ensures easing only runs where the player can see it.
+                if (this.target.ease
+                        && this.target.mode == Target.Mode.CLIENT
+                        && !ctx.player().isFallFlying()
+                        && Baritone.settings().humanizeCamera.value) {
+                    final Rotation current = new Rotation(ctx.player().getYRot(), ctx.player().getXRot());
+                    final Rotation eased = this.easeToward(current, desired);
+                    actual = this.processor.peekRotation(eased);
+                    this.easedThisTick = true;
+                } else {
+                    actual = this.processor.peekRotation(desired);
+                }
                 ctx.player().setYRot(actual.getYaw());
                 ctx.player().setXRot(actual.getPitch());
                 break;
@@ -114,7 +146,7 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
                     if (this.target.mode == Target.Mode.SERVER) {
                         ctx.player().setYRot(this.prevRotation.getYaw());
                         ctx.player().setXRot(this.prevRotation.getPitch());
-                    } else if (ctx.player().isFallFlying() ? Baritone.settings().elytraSmoothLook.value : Baritone.settings().smoothLook.value) {
+                    } else if (!this.easedThisTick && (ctx.player().isFallFlying() ? Baritone.settings().elytraSmoothLook.value : Baritone.settings().smoothLook.value)) {
                         ctx.player().setYRot((float) this.smoothYawBuffer.stream().mapToDouble(d -> d).average().orElse(this.prevRotation.getYaw()));
                         if (ctx.player().isFallFlying()) {
                             ctx.player().setXRot((float) this.smoothPitchBuffer.stream().mapToDouble(d -> d).average().orElse(this.prevRotation.getPitch()));
@@ -126,6 +158,7 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
                 }
                 // The target is done being used for this game tick, so it can be invalidated
                 this.target = null;
+                this.easedThisTick = false;
                 break;
             }
             default:
@@ -173,6 +206,66 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
             event.setYaw(actual.getYaw());
             event.setPitch(actual.getPitch());
         }
+    }
+
+    /**
+     * Compute the next applied rotation by moving {@code current} a bounded, humanized step toward
+     * {@code desired} — the core of the {@link Settings#humanizeCamera} easing layer.
+     *
+     * <p>Per axis (yaw shortest-angle, pitch linear):
+     * <ul>
+     *   <li>remaining gap &lt; {@link Settings#cameraMinTurnRate} → snap the rest (arrival; avoids a
+     *       permanent fractional offset / "never quite looking at it" wobble)</li>
+     *   <li>gap &lt; {@link Settings#cameraFlickThreshold} → <b>track</b>: close a fraction
+     *       ({@link Settings#cameraSmallDeltaRate}) of the gap. Small adjustments ease instead of
+     *       snapping — the "small angle shouldn't always flick" fix.</li>
+     *   <li>otherwise → <b>flick</b>: turn at the capped {@link Settings#cameraMaxTurnRate}. Humans
+     *       do flick on wide angles, just not instantaneously.</li>
+     * </ul>
+     * Pitch uses half the yaw flick rate, since vertical snaps read as more robotic. The result is
+     * clamped (pitch) and then handed to {@link AimProcessor#peekRotation}, which applies the usual
+     * mouse-pixel quantization + random jitter to the small per-tick delta — so an eased turn still
+     * looks like mouse movement, just spread across ticks instead of one.
+     *
+     * <p>The easing state is carried by the player's own rotation: in CLIENT mode the POST handler
+     * does not revert, so {@code ctx.player()} rotation set this tick is {@code current} next tick.
+     * No separate persisted field is needed.
+     */
+    private Rotation easeToward(Rotation current, Rotation desired) {
+        final Settings s = Baritone.settings();
+        final double maxRate = s.cameraMaxTurnRate.value;
+        final double minRate = s.cameraMinTurnRate.value;
+        final double k = s.cameraSmallDeltaRate.value;
+        final double flick = s.cameraFlickThreshold.value;
+
+        final float yawStep = easeAxis(current.getYaw(), desired.getYaw(), maxRate, minRate, k, flick, true);
+        // pitch flicks at half the yaw rate — vertical snaps are more visibly robotic
+        final float pitchStep = easeAxis(current.getPitch(), desired.getPitch(), maxRate * 0.5, minRate, k, flick, false);
+
+        return new Rotation(current.getYaw() + yawStep, current.getPitch() + pitchStep).clamp();
+    }
+
+    private static float easeAxis(float current, float desired, double maxRate, double minRate,
+                                  double k, double flick, boolean wrap) {
+        final float delta = wrap ? Rotation.normalizeYaw(desired - current) : (desired - current);
+        final double absDelta = Math.abs(delta);
+        if (absDelta < minRate) {
+            // arrival: close the remaining gap entirely this tick so we don't hover a fraction off
+            return delta;
+        }
+        final float step;
+        if (absDelta < flick) {
+            // track: ease a fraction of the gap (human-like small adjustment)
+            step = (float) (delta * k);
+        } else {
+            // flick: capped fast turn across a wide angle
+            step = (float) (Math.signum(delta) * maxRate);
+        }
+        // never overshoot the target on a flick/track step
+        if (Math.abs(step) > absDelta) {
+            return delta;
+        }
+        return step;
     }
 
     private static final class AimProcessor extends AbstractAimProcessor {
@@ -311,10 +404,12 @@ public final class LookBehavior extends Behavior implements ILookBehavior {
 
         public final Rotation rotation;
         public final Mode mode;
+        public final boolean ease;
 
-        public Target(Rotation rotation, Mode mode) {
+        public Target(Rotation rotation, Mode mode, boolean ease) {
             this.rotation = rotation;
             this.mode = mode;
+            this.ease = ease;
         }
 
         enum Mode {

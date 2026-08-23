@@ -31,4 +31,15 @@ public interface IInputOverrideHandler extends IBehavior {
     void setInputForceState(Input input, boolean forced);
 
     void clearAllKeys();
+
+    /**
+     * Whether Baritone is force-holding the item-use key (right-click) this tick. While true, a mixin
+     * suppresses vanilla's automatic {@code releaseUsingItem} call in {@code Minecraft.startUseItem}
+     * (which fires every tick the real use key is up and would otherwise cancel a bow draw, drop a
+     * shield, or abort an eat mid-bite). Baritone releases explicitly via
+     * {@code IPlayerController.releaseUsingItem} when it wants to stop.
+     */
+    boolean isForceUsingItem();
+
+    void setForceUsingItem(boolean force);
 }

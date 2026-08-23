@@ -34,10 +34,31 @@ public interface ILookBehavior extends IBehavior {
      * {@link Settings#randomLooking}). If the rotations produced by this behavior are required, then the
      * {@link #getAimProcessor() aim processor} should be used.
      *
+     * <p>Equivalent to {@link #updateTarget(Rotation, boolean, boolean) updateTarget(rotation, blockInteract, false)}
+     * — the rotation is applied exactly (subject only to the aim processor), with no easing.
+     *
      * @param rotation      The target rotations
      * @param blockInteract Whether the target rotations are needed for a block interaction
      */
     void updateTarget(Rotation rotation, boolean blockInteract);
+
+    /**
+     * Updates the current {@link ILookBehavior} target, optionally requesting that the camera
+     * <b>eases</b> toward the target rotation over several ticks instead of snapping to it in one.
+     *
+     * <p>Easing is a per-target opt-in: pass {@code ease = true} for look targets that should turn
+     * humanly (e.g. combat aiming at a mob). Pass {@code false} — or use the two-arg overload — for
+     * targets that must be pixel-exact this tick (block break/place, which rely on
+     * {@code objectMouseOver} raytracing the exact aim). Easing only takes effect when
+     * {@link Settings#humanizeCamera} is on and the target resolves to a client-visible rotation;
+     * otherwise it is ignored and the behavior is identical to the two-arg call.
+     *
+     * @param rotation      The target rotations
+     * @param blockInteract Whether the target rotations are needed for a block interaction
+     * @param ease          Whether to humanize the turn toward this target (only when
+     *                      {@link Settings#humanizeCamera} is on)
+     */
+    void updateTarget(Rotation rotation, boolean blockInteract, boolean ease);
 
     /**
      * The aim processor instance for this {@link ILookBehavior}, which is responsible for applying additional,

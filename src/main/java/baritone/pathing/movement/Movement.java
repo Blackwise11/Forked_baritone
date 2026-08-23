@@ -131,11 +131,14 @@ public abstract class Movement implements IMovement, MovementHelper {
             currentState.setInput(Input.CLICK_LEFT, true);
         }
 
-        // If the movement target has to force the new rotations, or we aren't using silent move, then force the rotations
-        currentState.getTarget().getRotation().ifPresent(rotation ->
-                baritone.getLookBehavior().updateTarget(
-                        rotation,
-                        currentState.getTarget().hasToForceRotations()));
+        // If the movement target has to force the new rotations, or we aren't using silent move, then force the rotations.
+        // Movement aims (not forced) opt into camera easing so the turn toward the next block eases instead of
+        // snapping; forced (block break/place) aims stay pixel-exact — ease=false — so objectMouseOver raytracing
+        // isn't thrown off. Easing only takes effect when humanizeCamera is on and the target is client-visible.
+        currentState.getTarget().getRotation().ifPresent(rotation -> {
+            boolean force = currentState.getTarget().hasToForceRotations();
+            baritone.getLookBehavior().updateTarget(rotation, force, !force);
+        });
         baritone.getInputOverrideHandler().clearAllKeys();
         currentState.getInputStates().forEach((input, forced) -> {
             baritone.getInputOverrideHandler().setInputForceState(input, forced);

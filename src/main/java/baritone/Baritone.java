@@ -80,6 +80,8 @@ public class Baritone implements IBaritone {
     private final FarmProcess farmProcess;
     private final InventoryPauserProcess inventoryPauserProcess;
     private final IElytraProcess elytraProcess;
+    private final CombatProcess combatProcess;
+    private final SurvivalProcess survivalProcess;
 
     private final PathingControlManager pathingControlManager;
     private final SelectionManager selectionManager;
@@ -124,7 +126,13 @@ public class Baritone implements IBaritone {
             this.inventoryPauserProcess  = this.registerProcess(InventoryPauserProcess::new);
             this.elytraProcess           = this.registerProcess(ElytraProcess::create);
             this.registerProcess(BackfillProcess::new);
+            this.combatProcess           = this.registerProcess(CombatProcess::new);
+            this.survivalProcess         = this.registerProcess(SurvivalProcess::new);
         }
+
+        // SurvivalProcess doubles as a game-event listener (death/respawn) — register it as one,
+        // separately from its process registration above.
+        this.gameEventHandler.registerEventListener(this.survivalProcess);
 
         this.worldProvider = new WorldProvider(this);
         this.selectionManager = new SelectionManager(this);
@@ -238,6 +246,15 @@ public class Baritone implements IBaritone {
     @Override
     public IElytraProcess getElytraProcess() {
         return this.elytraProcess;
+    }
+
+    @Override
+    public CombatProcess getCombatProcess() {
+        return this.combatProcess;
+    }
+
+    public SurvivalProcess getSurvivalProcess() {
+        return this.survivalProcess;
     }
 
     @Override

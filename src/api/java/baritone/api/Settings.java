@@ -790,6 +790,60 @@ public final class Settings {
     public final Setting<Integer> smoothLookTicks = new Setting<>(5);
 
     /**
+     * Whether to humanize camera turning for look targets that opt into easing (combat aiming, and
+     * pathing when {@code true}). When off, Baritone hard-sets the desired rotation every tick —
+     * a one-tick snap that reads as a bot, especially the hard flicks combat does onto a target.
+     *
+     * <p>This is a <b>per-target</b> layer separate from {@link #smoothLook}: block-break/block-place
+     * and other raytrace-precise interactions never ease (they need pixel-exact aim via
+     * {@code objectMouseOver}); only targets flagged {@code ease} are run through the easing below.
+     *
+     * <p>Easing rules (per axis, shortest-angle):
+     * <ul>
+     *   <li><b>Track</b> (small delta, &lt; {@link #cameraFlickThreshold}): step = delta *
+     *       {@link #cameraSmallDeltaRate}. A fraction of the gap closes each tick — a human-like
+     *       ease rather than a full snap on small adjustments.</li>
+     *   <li><b>Flick</b> (large delta): step = sign(delta) * {@link #cameraMaxTurnRate}. A capped
+     *       fast turn — humans do flick on wide angles, but not instantaneously.</li>
+     *   <li><b>Arrival</b>: once the remaining gap is &lt; {@link #cameraMinTurnRate}, snap to the
+     *       desired rotation so it doesn't hover forever a fraction of a degree off.</li>
+     * </ul>
+     * Pitch eases with the same rules but a tighter max rate (half of yaw's flick rate), since
+     * vertical flick is more visibly robotic. Elytra is never eased.
+     *
+     * <p>Defaults off — opt in only when you want the humanized look.
+     */
+    public final Setting<Boolean> humanizeCamera = new Setting<>(false);
+
+    /**
+     * Maximum degrees of yaw the eased camera will turn in a single tick during a flick (large
+     * delta). Caps how fast a wide-angle turn completes. Only used when {@link #humanizeCamera}
+     * is on.
+     */
+    public final Setting<Double> cameraMaxTurnRate = new Setting<>(60.0);
+
+    /**
+     * Below this remaining yaw/pitch gap (degrees), the eased camera snaps directly to the desired
+     * rotation instead of creeping the last fraction of a degree. Prevents a permanent tiny offset
+     * and the "never quite looking at it" wobble. Only used when {@link #humanizeCamera} is on.
+     */
+    public final Setting<Double> cameraMinTurnRate = new Setting<>(2.0);
+
+    /**
+     * Fraction of the remaining yaw/pitch gap closed per tick during a track (small delta below
+     * {@link #cameraFlickThreshold}). Lower = slower, smoother creep; 1.0 = snap. Only used when
+     * {@link #humanizeCamera} is on.
+     */
+    public final Setting<Double> cameraSmallDeltaRate = new Setting<>(0.3);
+
+    /**
+     * Yaw delta (degrees) above which the eased camera flicks at {@link #cameraMaxTurnRate} instead
+     * of tracking at {@link #cameraSmallDeltaRate}. The small-angle/large-angle boundary. Only used
+     * when {@link #humanizeCamera} is on.
+     */
+    public final Setting<Double> cameraFlickThreshold = new Setting<>(40.0);
+
+    /**
      * When true, the player will remain with its existing look direction as often as possible.
      * Although, in some cases this can get it stuck, hence this setting to disable that behavior.
      */
@@ -1584,6 +1638,183 @@ public final class Settings {
      * Sneak when magma blocks are under feet
      */
     public final Setting<Boolean> allowWalkOnMagmaBlocks = new Setting<>(false);
+
+    // ----------------------------- combat -----------------------------
+    // See combat_module.md. Cheat-style, human-looking fighter. Personal/single-player use.
+
+    /**
+     * Master toggle for the combat process. When false, {@code #hunt} will refuse to start.
+     */
+    public final Setting<Boolean> combatEnabled = new Setting<>(true);
+
+    /**
+     * Reach attribute buff applied to {@link net.minecraft.world.entity.ai.attributes.Attributes#ENTITY_INTERACTION_RANGE}
+     * while fighting, so we out-range melee mobs. Set to 3.0 (vanilla) to disable the buff.
+     * Applied to the client player and, on an integrated server, the matching server player.
+     */
+    public final Setting<Double> combatReach = new Setting<>(4.5);
+
+    /**
+     * When true, aim is eased through LookBehavior and the attack respects the swing-cooldown
+     * (lower DPS, looks human). When false, snaps and strikes every ready tick for max DPS.
+     */
+    public final Setting<Boolean> combatHumanizeAim = new Setting<>(true);
+
+    /**
+     * Disengage and retreat below this many HP, then re-engage once healed.
+     */
+    public final Setting<Double> combatRetreatHealth = new Setting<>(6.0);
+
+    /**
+     * Retreat if more hostiles than this are within reaction range.
+     */
+    public final Setting<Integer> combatMaxAttackers = new Setting<>(3);
+
+    /**
+     * How long to wander searching for a target before giving up the hunt, in seconds.
+     */
+    public final Setting<Integer> combatSearchTimeoutSeconds = new Setting<>(60);
+
+    /**
+     * Hard cap on a single hunt's duration in seconds. 0 = no cap.
+     */
+    public final Setting<Integer> combatMaxDurationSeconds = new Setting<>(300);
+
+    /**
+     * When (and whether) the combat process self-activates to clear hostile mobs that wander within
+     * {@link #combatDefendRange}. {@link baritone.api.process.AutoDefendMode#TASK} defends only while
+     * another task is actively pathing (the original behavior); {@link AutoDefendMode#ALWAYS} defends
+     * even when idle; {@link AutoDefendMode#OFF} disables it. Behaves like auto-eat: a temporary
+     * process that freezes — not cancels — the underlying task. Off by default.
+     */
+    public final Setting<baritone.api.process.AutoDefendMode> combatAutoDefendMode =
+            new Setting<>(baritone.api.process.AutoDefendMode.OFF);
+
+    /**
+     * Radius (blocks) in which a hostile mob triggers auto-defend. Anything hostile inside this
+     * is treated as an immediate threat.
+     */
+    public final Setting<Double> combatDefendRange = new Setting<>(10.0);
+
+    /**
+     * Auto-defend pursuit leash: how far to chase a hostile before giving up and yielding back
+     * to the original task. Greater than {@link #combatDefendRange} so a kill that drifts can
+     * finish, but the bot won't pursue across the map.
+     */
+    public final Setting<Double> combatDefendPursueRange = new Setting<>(18.0);
+
+    /**
+     * Raise a shield (if one is equipped) to block incoming arrows and other projectiles, and to
+     * turtle against imminent melee hits. The shield is only held while a hit is imminent, then
+     * released so attacking/movement can resume.
+     */
+    public final Setting<Boolean> combatUseShield = new Setting<>(true);
+
+    /**
+     * Look-ahead (ticks) used to decide an incoming projectile will hit the player. A projectile
+     * whose trajectory passes within {@code combatShieldRadius} of the player within this many
+     * ticks triggers a shield raise.
+     */
+    public final Setting<Integer> combatProjectileLookahead = new Setting<>(10);
+
+    /**
+     * How many blocks to inflate the player's bounding box when testing whether an inbound projectile
+     * will hit (and thus trigger a shield raise). Larger = block more generously (catches arrows that
+     * would just clip the hitbox), smaller = only block near-certain hits. The step simulation tests
+     * the projectile's arcing path against this inflated box.
+     */
+    public final Setting<Double> combatShieldRadius = new Setting<>(0.5);
+
+    /**
+     * Raise the shield this many ticks before a projectile's predicted impact — enough lead that the
+     * block is fully up by the time the arrow lands, instead of raising too late and taking the hit.
+     * The shield is then held a few ticks past impact so a flicker doesn't drop it early.
+     */
+    public final Setting<Integer> combatShieldLeadTicks = new Setting<>(5);
+
+    /**
+     * Predictive melee shield blocking. When a melee mob is inside its attack reach (we can't kite
+     * outside it), the bot tracks each mob's swing rhythm and raises the shield just before the mob's
+     * next predicted swing, then drops it the moment the mob is on its attack cooldown — opening a
+     * strike window. This is selective (block the imminent hit, strike on the cooldown), NOT a held
+     * block: holding the shield against a clump suppresses our own offense and drains the shield.
+     *
+     * <p>A mob that just swung is on cooldown whether or not its hit landed (a blocked hit still
+     * spends the mob's swing) — that cooldown is the engage window. Only active for melee mobs we
+     * can't kite (inside their reach); kite-able fights are unaffected.
+     */
+    public final Setting<Boolean> combatMeleeBlock = new Setting<>(true);
+
+    /**
+     * Hard cap (ticks) on how long the bot will hold the shield against melee without landing a
+     * strike. If exceeded (a swing we couldn't detect, or a clump re-acquiring faster than we can
+     * exploit), the bot drops the shield, retreats to reset, and re-engages — so it can never pin
+     * the shield up until it breaks. ~40 ticks ≈ 2 seconds.
+     */
+    public final Setting<Integer> combatMeleeShieldMaxHold = new Setting<>(40);
+
+    /**
+     * Dodge perpendicular to a ranged mob's aim when its look vector lines up on the player (the
+     * F3+B entity-look line). Uses key-based strafing rather than path goals, so it is responsive
+     * enough to make arrows whiff.
+     */
+    public final Setting<Boolean> combatDodgeRanged = new Setting<>(true);
+
+    /**
+     * Aim-cone half-angle (degrees) within which a ranged mob counts as "aiming at us" and triggers
+     * a dodge. Smaller = only dodge when truly lined up.
+     */
+    public final Setting<Double> combatDodgeAngle = new Setting<>(18.0);
+
+    /**
+     * Use a bow against targets that are out of melee reach. Requires a bow in the hotbar and at
+     * least one arrow in the inventory. The bot switches back to a melee weapon once the target
+     * closes inside {@code combatBowMinRange}.
+     */
+    public final Setting<Boolean> combatUseBow = new Setting<>(true);
+
+    /**
+     * Don't fire a bow at targets closer than this (blocks) — switch to melee instead. Should be
+     * inside the mob's own melee reach so we don't plink point-blank.
+     */
+    public final Setting<Double> combatBowMinRange = new Setting<>(6.0);
+
+    /**
+     * Ticks to draw a bow before releasing (vanilla full draw is ~20 ticks for max damage).
+     */
+    public final Setting<Integer> combatBowDrawTicks = new Setting<>(20);
+
+    /**
+     * When true, force bow usage in combat regardless of distance — the bot will shoot even at
+     * point-blank range instead of switching to melee. Intended for testing bow aim/draw timing;
+     * toggle via {@code #hunt bow on|off}. Auto-clears when a hunt stops.
+     */
+    public final Setting<Boolean> combatForceBow = new Setting<>(false);
+
+    /**
+     * For velocity-scaled weapons (mace, spear), time the strike to coincide with high player
+     * velocity: the mace smash-attacks on a fall, and spears benefit from sprint momentum. When
+     * false, they are swung like a normal melee weapon.
+     */
+    public final Setting<Boolean> combatVelocityStrikes = new Setting<>(true);
+
+    // ----------------------------- survival -----------------------------
+
+    /**
+     * When true, the survival process will auto-eat when hunger drops below {@link #autoEatBelowFood}.
+     * Off by default so the bot doesn't consume your food unexpectedly.
+     */
+    public final Setting<Boolean> autoEat = new Setting<>(false);
+
+    /**
+     * Auto-eat when the food level drops below this (0-20).
+     */
+    public final Setting<Double> autoEatBelowFood = new Setting<>(14.0);
+
+    /**
+     * When true, the bot auto-respawns after dying (best-effort) and records the death position.
+     */
+    public final Setting<Boolean> autoResumeAfterDeath = new Setting<>(false);
 
     /**
      * A map of lowercase setting field names to their respective setting
