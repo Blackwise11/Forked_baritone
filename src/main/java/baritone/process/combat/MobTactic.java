@@ -23,9 +23,9 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.monster.Witch;
-import net.minecraft.world.entity.monster.illager.Pillager;
-import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
-import net.minecraft.world.entity.monster.spider.Spider;
+import net.minecraft.world.entity.monster.Pillager;
+import net.minecraft.world.entity.monster.AbstractSkeleton;
+import net.minecraft.world.entity.monster.Spider;
 
 /**
  * How to fight one kind of mob. The "skill" of the combat module lives in these
