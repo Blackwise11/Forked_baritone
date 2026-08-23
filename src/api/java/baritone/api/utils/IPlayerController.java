@@ -23,6 +23,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.GameType;
@@ -51,7 +52,27 @@ public interface IPlayerController {
 
     InteractionResult processRightClick(LocalPlayer player, Level world, InteractionHand hand);
 
+    /**
+     * Release the currently-in-use item the way vanilla does when the player lets go of the use key:
+     * sends the {@code RELEASE_USE_ITEM} serverbound packet and calls {@code stopUsingItem}. This is
+     * the correct way to fire a drawn bow (the release packet is what makes the server actually
+     * launch the arrow) and to drop a shield. Use this — not {@code player.stopUsingItem()} — because
+     * the latter fires locally but never sends the release packet, desyncing the server.
+     *
+     * @param player the player releasing the item
+     */
+    void releaseUsingItem(Player player);
+
     boolean clickBlock(BlockPos loc, Direction face);
+
+    /**
+     * Attack the specified entity (sends the serverbound interact/attack packet) and swings the
+     * main hand. Vanilla {@code MultiPlayerGameMode.attack} does not swing on its own.
+     *
+     * @param player the attacking player
+     * @param target the entity to attack
+     */
+    void attack(Player player, Entity target);
 
     void setHittingBlock(boolean hittingBlock);
 
