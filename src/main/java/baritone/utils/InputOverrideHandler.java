@@ -20,9 +20,11 @@ package baritone.utils;
 import baritone.Baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.event.events.TickEvent;
+import baritone.api.utils.Helper;
 import baritone.api.utils.IInputOverrideHandler;
 import baritone.api.utils.input.Input;
 import baritone.behavior.Behavior;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.player.KeyboardInput;
 
 import java.util.HashMap;
@@ -36,7 +38,7 @@ import java.util.Map;
  * @author Brady
  * @since 7/31/2018
  */
-public final class InputOverrideHandler extends Behavior implements IInputOverrideHandler {
+public final class InputOverrideHandler extends Behavior implements IInputOverrideHandler, Helper {
 
     /**
      * Maps inputs to whether or not we are forcing their state down.
@@ -52,6 +54,26 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
 
     private final BlockBreakHelper blockBreakHelper;
     private final BlockPlaceHelper blockPlaceHelper;
+
+    /**
+     * FTB Ultimine's keybind, discovered at runtime (no compile-time dependency). Held down
+     * while Baritone is breaking a block so Ultimine veins the whole deposit, like a
+     * vein-miner. Null until found — see {@link #tickUltimineKey(boolean)}.
+     *
+     * <p><b>Known risk:</b> if Ultimine polls the physical GLFW key instead of
+     * {@link KeyMapping#isDown()}, this does nothing (harmless). Needs in-game verification
+     * with the mod installed; the design is dependency-free, so failure mode is a no-op.
+     */
+    private KeyMapping ultimineKey;
+
+    /** Ticks until the next Ultimine keybind scan when the previous scan failed. */
+    private int ultimineRescanCountdown = 0;
+
+    /** Whether WE currently hold the Ultimine key down (so we only release what we pressed). */
+    private boolean ultimineHeld = false;
+
+    /** Logged "not installed" once per session, not every scan. */
+    private boolean ultimineMissingLogged = false;
 
     public InputOverrideHandler(Baritone baritone) {
         super(baritone);
@@ -88,6 +110,7 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
     public final void clearAllKeys() {
         this.inputForceStateMap.clear();
         this.forceUsingItem = false;
+        releaseUltimineKey(); // never leave a mod keybind stuck down through a cancel
     }
 
     @Override
@@ -108,8 +131,10 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
         if (isInputForcedDown(Input.CLICK_LEFT)) {
             setInputForceState(Input.CLICK_RIGHT, false);
         }
-        blockBreakHelper.tick(isInputForcedDown(Input.CLICK_LEFT));
+        boolean breaking = isInputForcedDown(Input.CLICK_LEFT);
+        blockBreakHelper.tick(breaking);
         blockPlaceHelper.tick(isInputForcedDown(Input.CLICK_RIGHT));
+        tickUltimineKey(breaking);
 
         if (inControl()) {
             if (ctx.player().input.getClass() != PlayerMovementInput.class) {
@@ -132,6 +157,74 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
         }
         // if we are not primary (a bot) we should set the movementinput even when idle (not pathing)
         return baritone.getPathingBehavior().isPathing() || baritone != BaritoneAPI.getProvider().getPrimaryBaritone();
+    }
+
+    // ------------------------------------------------------------ FTB Ultimine
+
+    /**
+     * Hold FTB Ultimine's keybind while Baritone is breaking a block, release otherwise.
+     * Called every tick from {@link #onTick} — note that {@code clearAllKeys()} (which several
+     * processes call every tick) also releases the key; this re-asserts it in the same tick
+     * while breaking continues, so at worst a cancel-then-continue transition costs one tick
+     * of the overlay.
+     */
+    private void tickUltimineKey(boolean breaking) {
+        if (!Baritone.settings().useFtbUltimine.value || ctx.minecraft().options == null) {
+            releaseUltimineKey();
+            return;
+        }
+        if (ultimineKey == null) {
+            // Rescan periodically (every 5s): covers the mod loading after us, world joins
+            // recreating options, and keybind re-registration. A scan is a small array walk.
+            if (ultimineRescanCountdown-- > 0) {
+                return;
+            }
+            ultimineRescanCountdown = 100;
+            ultimineKey = findUltimineKey();
+            if (ultimineKey == null) {
+                if (!ultimineMissingLogged) {
+                    logDebug("FTB Ultimine keybind not found — useFtbUltimine will stay inactive until the mod is present.");
+                    ultimineMissingLogged = true;
+                }
+                return;
+            }
+        }
+        if (breaking) {
+            ultimineKey.setDown(true);
+            ultimineHeld = true;
+        } else {
+            releaseUltimineKey();
+        }
+    }
+
+    /**
+     * Scan the game's keybinds for FTB Ultimine's. Matched on the binding's translation key
+     * ({@code key.ftbultimine}); falls back to a category match ({@code key.categories.ftbultimine})
+     * in case the binding key is renamed.
+     */
+    private KeyMapping findUltimineKey() {
+        for (KeyMapping mapping : ctx.minecraft().options.keyMappings) {
+            if (mapping == null) {
+                continue;
+            }
+            String name = keyName(mapping);
+            if ("key.ftbultimine".equals(name)) {
+                return mapping;
+            }
+        }
+        return null;
+    }
+
+    private static String keyName(KeyMapping mapping) {
+        return mapping.getName();
+    }
+
+    /** Release the Ultimine key if we're the one holding it. */
+    private void releaseUltimineKey() {
+        if (ultimineHeld && ultimineKey != null) {
+            ultimineKey.setDown(false);
+        }
+        ultimineHeld = false;
     }
 
     public BlockBreakHelper getBlockBreakHelper() {
