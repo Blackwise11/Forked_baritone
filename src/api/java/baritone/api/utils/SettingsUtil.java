@@ -228,6 +228,33 @@ public class SettingsUtil {
         STRING(String.class, String::new),
         MIRROR(Mirror.class, Mirror::valueOf, Mirror::name),
         ROTATION(Rotation.class, Rotation::valueOf, Rotation::name),
+        ENUM() {
+            // Generic fallback for any enum-typed setting (e.g. AutoDefendMode). Accepts the value
+            // case-insensitively (chat input is usually lowercase) but writes back via name(), so the
+            // persisted form is the canonical uppercase constant — identical to MIRROR/ROTATION.
+            @Override
+            public Object parse(Type type, String raw) {
+                @SuppressWarnings("unchecked")
+                Class<? extends Enum> enumClass = (Class<? extends Enum>) type;
+                String trimmed = raw.trim();
+                for (Enum<?> constant : enumClass.getEnumConstants()) {
+                    if (constant.name().equalsIgnoreCase(trimmed)) {
+                        return constant;
+                    }
+                }
+                throw new IllegalArgumentException("No enum constant " + enumClass.getName() + "." + trimmed);
+            }
+
+            @Override
+            public String toString(Type type, Object value) {
+                return ((Enum<?>) value).name();
+            }
+
+            @Override
+            public boolean accepts(Type type) {
+                return type instanceof Class && Enum.class.isAssignableFrom((Class<?>) type);
+            }
+        },
         COLOR(
                 Color.class,
                 str -> new Color(Integer.parseInt(str.split(",")[0]), Integer.parseInt(str.split(",")[1]), Integer.parseInt(str.split(",")[2])),

@@ -43,6 +43,13 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
      */
     private final Map<Input, Boolean> inputForceStateMap = new HashMap<>();
 
+    /**
+     * True while Baritone is force-holding the use key (to sustain a bow draw, a shield block, or an
+     * eat). A mixin suppresses vanilla's per-tick auto-release while this is set; see
+     * {@link IInputOverrideHandler#isForceUsingItem()}.
+     */
+    private boolean forceUsingItem = false;
+
     private final BlockBreakHelper blockBreakHelper;
     private final BlockPlaceHelper blockPlaceHelper;
 
@@ -80,6 +87,17 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
     @Override
     public final void clearAllKeys() {
         this.inputForceStateMap.clear();
+        this.forceUsingItem = false;
+    }
+
+    @Override
+    public final boolean isForceUsingItem() {
+        return this.forceUsingItem;
+    }
+
+    @Override
+    public final void setForceUsingItem(boolean force) {
+        this.forceUsingItem = force;
     }
 
     @Override

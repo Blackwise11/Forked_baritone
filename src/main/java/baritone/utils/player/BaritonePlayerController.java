@@ -25,6 +25,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.level.GameType;
@@ -88,8 +89,22 @@ public final class BaritonePlayerController implements IPlayerController {
     }
 
     @Override
+    public void releaseUsingItem(Player player) {
+        // Sends RELEASE_USE_ITEM + stopUsingItem. This is a DIRECT call, so the MixinMinecraft redirect
+        // (which only suppresses vanilla's auto-release inside Minecraft.startUseItem) does NOT intercept
+        // it — the release goes through and the bow fires / the shield drops, even while forceUsingItem.
+        mc.gameMode.releaseUsingItem(player);
+    }
+
+    @Override
     public boolean clickBlock(BlockPos loc, Direction face) {
         return mc.gameMode.startDestroyBlock(loc, face);
+    }
+
+    @Override
+    public void attack(Player player, Entity target) {
+        mc.gameMode.attack(player, target);
+        player.swing(InteractionHand.MAIN_HAND);
     }
 
     @Override
