@@ -1001,6 +1001,15 @@ public final class Settings {
     public final Setting<Integer> mineCollectTimeoutSeconds = new Setting<>(10);
 
     /**
+     * Hold the FTB Ultimine keybind while Baritone breaks blocks, so one break veins the
+     * whole deposit (requires FTB Ultimine installed client-side AND server-side — the mod
+     * validates activations on the server). No hard dependency: when the keybind isn't
+     * found, this silently does nothing. Note Ultimine multiplies durability/hunger cost
+     * per vein, and the server enforces its own cooldown between activations.
+     */
+    public final Setting<Boolean> useFtbUltimine = new Setting<>(false);
+
+    /**
      * After finding this many instances of the target block in the cache, it will stop expanding outward the chunk search.
      */
     public final Setting<Integer> maxCachedWorldScanCount = new Setting<>(10);
