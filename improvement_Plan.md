@@ -163,12 +163,83 @@ silently guess.
 
 ---
 
+## Feature 4 — Tag-driven mob classification (`MobTactic` + `CombatProcess`)
+
+**Goal:** replace hardcoded `instanceof` mob checks with Minecraft tag registries
+(`EntityTypeTags.SKELETONS`, `#minecraft:undead`, a `c:hostiles`-style tag) so modded mobs
+are classified correctly without code changes — and modpack makers can extend behavior
+with a datapack instead of a PR.
+
+### Current state (what's actually hardcoded)
+- `MobTactic.forEntity()`: `Creeper`, `AbstractSkeleton`, `Pillager`, `Spider`, `EnderMan`,
+  `Witch`, `Blaze`, `Slime` — everything else (zombies, husks, drowned, piglins…) falls to
+  `GENERIC` melee. (There is no `instanceof Zombie` — that's intentional, per the comment.)
+- `CombatProcess.isHostile()`: `instanceof Monster || Slime || Phantom`.
+
+### Why tags are an upgrade, not just style
+- **Modded mobs work.** `instanceof AbstractSkeleton` misses every modded skeleton (Mowzie's
+  Mobs, Ice and Fire, …). `e.getType().is(EntityTypeTags.SKELETONS)` catches anything the
+  tag contains — and modpack makers append to tags via datapack.
+- **Fixes real classification gaps.** Class-based `isHostile()` misses hostile vanilla mobs
+  that don't extend `Monster` (Shulker extends `Golem`, Hoglin is `Enemy`-but-not-`Monster`,
+  Ghast/Zoglin edge cases). A tag seeded with the actual hostile list is more accurate than
+  the class hierarchy.
+- Cost is the same class as `instanceof` (a `HashSet.contains` per call) — fine in the
+  per-tick entity loops.
+
+### Design
+1. **`MobTactic.forEntity()` — tag-first, class-fallback:**
+   - `EntityTypeTags.SKELETONS` → skeleton tactic (exact replacement for
+     `instanceof AbstractSkeleton`; covers skeleton/stray/bogged/wither_skeleton + modded).
+   - `EntityTypeTags.RAIDERS` → **not** usable as "ranged" (Vindicator is melee — mapping
+     raiders→ranged would regress it). Keep `instanceof Pillager` for now, or gate on
+     `RAIDERS && !Vindicator`.
+   - `c:hostiles` / common tags: verify availability on NeoForge 21.1 at implementation
+     time; do not hard-depend on a convention tag that may not exist.
+   - Numeric tactics (Creeper fuse-retreat range, Spider danger range, …) can't be tagged —
+     `MobTactic` stays a record; tags decide *which* record, classes keep supplying numbers.
+2. **`isHostile()` — three-layer check:**
+   1. Fast path: existing `Monster || Slime || Phantom` instanceof (vanilla hostiles,
+      zero regression).
+   2. `baritone:hostiles` **custom entity-type tag** (new): shipped in this jar as
+      `data/baritone/tags/entity_types/hostiles.json`, seeded with vanilla types the class
+      check misses (shulker, hoglin, ghast, zoglin, …). Entity-type tags are part of the
+      synced registry, so this works client-side in multiplayer and is extendable by any
+      server datapack or mod — that's the data-driven extensibility win.
+   3. Optional `c:hostiles` if present (layered, non-required).
+3. **`HuntFilter.Nearest` unification:** its predicate is currently `Monster`-only (the
+   `doAcquire()` comment already complains about this) — switch it to the new tag-based
+   `isHostile` so `#hunt nearest` and auto-defend agree on what counts as hostile.
+4. **New custom tag `baritone:ranged`** (same mechanism): skeleton/pillager/witch/blaze +
+   datapack-extensible — feeds `MobTactic.forEntity().ranged()` and `countRangedHostiles()`
+   so modded ranged mobs get strafe/shield behavior for free.
+
+### Files touched
+- `src/main/java/baritone/process/combat/MobTactic.java` — tag-first dispatch
+- `src/main/java/baritone/process/CombatProcess.java` — `isHostile()` layers, ranged count
+- `src/main/java/baritone/process/combat/HuntFilter.java` — `Nearest` predicate
+- `src/main/resources/data/baritone/tags/entity_types/{hostiles,ranged}.json` — new tag data
+  (wired through each loader's resources; NeoForge 21.1 loads mod-jar datapacks natively)
+
+### Test plan
+- Vanilla: `#hunt skeleton` → skeleton/stray/bogged all get ranged tactics (regression:
+  tag dispatch returns identical numbers to the old `instanceof` path for all vanilla mobs).
+- Modded mobs (any hostile-content mod): untagged modded skeleton now kites/shields like a
+  vanilla skeleton instead of GENERIC-meleeing.
+- Datapack adding a custom mob to `baritone:hostiles` → auto-defend reacts to it with zero
+  code/config changes.
+- Shulker/hoglin hostility: previously invisible to auto-defend → now detected.
+
+---
+
 ## Suggested order & effort
 
 | # | Feature | Depends on | Rough effort |
 |---|---------|-----------|--------------|
 | 3 | Smart mine arguments | none | smallest — pure parsing, easy to test |
+| 4 | Tag-driven mob classification | none | small-medium — refactor + two tag JSONs |
 | 2 | Drop collection | none | medium — two processes, timeout logic |
 | 1 | FTB Ultimine | best after 3 (`#mine ore` + veins is the showcase) | medium — key-hold + cooldown tuning |
 
-Each feature: implement → single-player test → commit → push to `modded` remote.
+Each feature: implement → single-player test → commit → push to `modded` remote
+(now `https://github.com/Blackwise11/Forked_baritone.git` — renamed from `Modded_baritone`).

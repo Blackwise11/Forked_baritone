@@ -1,0 +1,37 @@
+# NeoForge build check — verifies the primary target compiles cleanly on every push.
+# Jars land in dist/ and are uploaded as artifacts.
+
+name: Build (NeoForge)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0  # version string comes from `git describe --always --tags --first-parent`
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Build with Gradle
+      run: ./gradlew :neoforge:build --console=plain
+
+    - name: Archive dist jars
+      uses: actions/upload-artifact@v7
+      with:
+        name: neoforge-dist
+        path: dist/

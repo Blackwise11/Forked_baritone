@@ -1,6 +1,10 @@
 .DS_Store
 **/*.swp
 
+# local build logs / editor state
+*.log
+.vscode/
+
 run/
 autotest/
 dist/
