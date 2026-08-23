@@ -62,6 +62,12 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     private int desiredQuantity;
     private int tickCount;
 
+    /**
+     * Deadline (tickCount) for the post-mining drop-collection phase; -1 = not collecting.
+     * Set when all targets are exhausted and {@code mineCollectDrops} is on.
+     */
+    private long collectDeadline = -1;
+
     public MineProcess(Baritone baritone) {
         super(baritone);
     }
@@ -137,12 +143,73 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         }
         PathingCommand command = updateGoal();
         if (command == null) {
+            // no targets left in range — with mineCollectDrops, sweep the dropped loot first
+            if (Baritone.settings().mineCollectDrops.value) {
+                PathingCommand collect = collectDrops();
+                if (collect != null) {
+                    return collect;
+                }
+            }
             // none in range
             // maybe say something in chat? (ahem impact)
             cancel();
             return null;
         }
         return command;
+    }
+
+    /**
+     * Post-mining loot sweep: path over matching dropped items (nearest first) so the bot
+     * doesn't move on with the haul still on the ground. Returns a pathing command while
+     * there is collectable loot, or null when done / nothing to collect / gave up.
+     *
+     * <p>Safety: items in lava or on fire are skipped (walking into lava for loot is a bad
+     * trade and they usually despawn-burn anyway), and the phase is abandoned when the
+     * inventory is full or {@link Baritone.settings().mineCollectTimeoutSeconds} elapses.
+     */
+    private PathingCommand collectDrops() {
+        if (ctx.player() == null) {
+            return null;
+        }
+        if (ctx.player().getInventory().getFreeSlot() == -1) {
+            logDirect("Inventory full — leaving drops behind.");
+            collectDeadline = -1;
+            return null;
+        }
+        if (collectDeadline < 0) {
+            collectDeadline = tickCount + Baritone.settings().mineCollectTimeoutSeconds.value * 20L;
+        }
+        if (tickCount > collectDeadline) {
+            logDirect("Timed out collecting drops — moving on.");
+            collectDeadline = -1;
+            return null;
+        }
+        double radius = 8.0;
+        double rs = radius * radius;
+        ItemEntity nearest = null;
+        double nearestDist = Double.MAX_VALUE;
+        for (Entity e : ctx.entitiesStream().toList()) {
+            if (!(e instanceof ItemEntity item) || !item.isAlive()) {
+                continue;
+            }
+            if (!filter.has(item.getItem())) { // only what we were mining for
+                continue;
+            }
+            if (item.isInLava() || item.isOnFire()) {
+                continue;
+            }
+            double dist = item.distanceToSqr(ctx.player());
+            if (dist <= rs && dist < nearestDist) {
+                nearest = item;
+                nearestDist = dist;
+            }
+        }
+        if (nearest == null) {
+            collectDeadline = -1; // collected (or gone) — done
+            return null;
+        }
+        BlockPos pos = BlockPos.containing(nearest.getX(), nearest.getY(), nearest.getZ());
+        return new PathingCommand(new GoalNear(pos, 1), PathingCommandType.REVALIDATE_GOAL_AND_PATH);
     }
 
 
@@ -514,6 +581,7 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         this.branchPoint = null;
         this.branchPointRunaway = null;
         this.anticipatedDrops = new HashMap<>();
+        this.collectDeadline = -1;
         if (filter != null) {
             rescan(new ArrayList<>(), new CalculationContext(baritone));
         }

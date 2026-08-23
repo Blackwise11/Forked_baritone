@@ -987,6 +987,20 @@ public final class Settings {
     public final Setting<Boolean> mineFamilyExpansion = new Setting<>(true);
 
     /**
+     * When true, {@code #mine} paths over dropped matching items before declaring the job
+     * done, so the bot doesn't move on with loot still on the ground. Items in lava or on
+     * fire are skipped (they're usually gone anyway), and collection is abandoned with a
+     * log message when the inventory is full or {@link #mineCollectTimeoutSeconds} elapses.
+     */
+    public final Setting<Boolean> mineCollectDrops = new Setting<>(false);
+
+    /**
+     * How long {@code #mine} spends trying to collect dropped items before giving up and
+     * moving on (seconds).
+     */
+    public final Setting<Integer> mineCollectTimeoutSeconds = new Setting<>(10);
+
+    /**
      * After finding this many instances of the target block in the cache, it will stop expanding outward the chunk search.
      */
     public final Setting<Integer> maxCachedWorldScanCount = new Setting<>(10);
@@ -1687,6 +1701,23 @@ public final class Settings {
      * Hard cap on a single hunt's duration in seconds. 0 = no cap.
      */
     public final Setting<Integer> combatMaxDurationSeconds = new Setting<>(300);
+
+    /**
+     * After a kill on a manual hunt, walk over the loot within {@link #combatLootRadius}
+     * before moving to the next target. Skipped entirely in auto-defend mode (survival
+     * first — the frozen task resumes instead). Items in lava or on fire are ignored.
+     */
+    public final Setting<Boolean> combatCollectLoot = new Setting<>(true);
+
+    /**
+     * Radius (blocks) around the player scanned for loot after a kill.
+     */
+    public final Setting<Double> combatLootRadius = new Setting<>(8.0);
+
+    /**
+     * How long combat spends collecting loot after a kill before giving up (seconds).
+     */
+    public final Setting<Integer> combatLootTimeoutSeconds = new Setting<>(8);
 
     /**
      * When (and whether) the combat process self-activates to clear hostile mobs that wander within
