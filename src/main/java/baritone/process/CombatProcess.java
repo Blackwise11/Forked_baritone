@@ -29,6 +29,7 @@ import baritone.api.process.PathingCommandType;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.RotationUtils;
 import baritone.api.utils.input.Input;
+import baritone.process.combat.CombatTags;
 import baritone.process.combat.HuntFilter;
 import baritone.process.combat.MobTactic;
 import baritone.process.combat.ProjectileThreat;
@@ -46,9 +47,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.EnderMan;
-import net.minecraft.world.entity.monster.Monster;
-import net.minecraft.world.entity.monster.Phantom;
-import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ArrowItem;
 import net.minecraft.world.item.BowItem;
@@ -575,9 +573,10 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
     // ---------------------------------------------------------------- states
 
     private void doAcquire() {
-        // Auto-defend bypasses pickTarget(): it dereferences `filter` (null in auto-defend) and
-        // HuntFilter.Nearest's predicate is Monster-only, missing Slime/Phantom that isHostile
-        // catches. Use nearestHostile directly over the pursuit leash.
+        // Auto-defend bypasses pickTarget(): it dereferences `filter` (null in auto-defend).
+        // (Historically Nearest's predicate was Monster-only, diverging from isHostile — both
+        // now delegate to CombatTags.isHostile, so they agree; nearestHostile is still used
+        // directly here to apply the pursuit leash.)
         LivingEntity found = (mode == Mode.AUTODEFEND)
                 ? nearestHostile(Baritone.settings().combatDefendPursueRange.value)
                 : pickTarget();
@@ -1168,14 +1167,13 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
      * mob AI and is never synced to the client, so {@code mob.getTarget()} is null on the client.
      * Detecting threats by hostile type + proximity is the reliable client-side signal.
      *
-     * <p>{@code Monster} covers Zombie/Husk/Drowned, Skeleton variants, Creeper, Spider, EnderMan,
-     * Witch, Blaze, etc. {@code Slime} and {@code Phantom} are hostile but extend {@code Mob}
-     * directly, so they're listed explicitly.
+     * <p>Delegates to {@link CombatTags#isHostile}: {@code Monster || Slime || Phantom} fast
+     * path, then the {@code baritone:hostiles} entity-type tag (shipped in this jar; covers
+     * vanilla hostiles the class check misses — shulker, hoglin, ghast, zoglin — and is
+     * extendable by server datapacks for modded mobs), then optional {@code c:hostiles}.
      */
     private static boolean isHostile(Entity e) {
-        return e instanceof Monster
-                || e instanceof Slime
-                || e instanceof Phantom;
+        return CombatTags.isHostile(e);
     }
 
     /** The nearest hostile within {@code range} of the player, or null. */

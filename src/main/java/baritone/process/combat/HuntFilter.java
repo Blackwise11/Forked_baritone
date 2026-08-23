@@ -22,7 +22,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.monster.Monster;
 
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -51,18 +50,18 @@ public sealed interface HuntFilter {
         }
     }
 
-    /** Nearest hostile within range. */
+    /** Nearest hostile within range. Same hostility definition as auto-defend ({@link CombatTags}). */
     record Nearest() implements HuntFilter {
         @Override public Predicate<Entity> predicate() {
-            return e -> e instanceof Monster;
+            return CombatTags::isHostile;
         }
         @Override public String describe() { return "nearest hostile"; }
     }
 
-    /** Every hostile in range (clear an area). */
+    /** Every hostile in range (clear an area). Same hostility definition as auto-defend ({@link CombatTags}). */
     record All() implements HuntFilter {
         @Override public Predicate<Entity> predicate() {
-            return e -> e instanceof Monster;
+            return CombatTags::isHostile;
         }
         @Override public String describe() { return "all hostiles"; }
     }
