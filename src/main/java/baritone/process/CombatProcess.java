@@ -45,6 +45,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.player.Player;
@@ -78,7 +79,7 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public final class CombatProcess extends BaritoneProcessHelper implements ICombatProcess {
 
-    private enum State { IDLE, ACQUIRE, SEARCH, APPROACH, STRIKE, RECOVER, RETREAT }
+    private enum State { IDLE, ACQUIRE, SEARCH, APPROACH, STRIKE, RECOVER, LOOT, RETREAT }
 
     /**
      * Why combat is engaged. {@code MANUAL} is an explicit {@code #hunt} — non-temporary, seizes
@@ -126,6 +127,9 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
 
     // per-mob bow-draw tracking: when a ranged mob started drawing, so we can pre-raise near its release
     private final java.util.Map<UUID, Long> bowDrawStart = new java.util.HashMap<>();
+
+    /** Deadline (tickCount) for the post-kill loot sweep; -1 = not looting. */
+    private long lootDeadline = -1;
 
     // melee rhythm tracking: a mob that just swung (rising edge of the synced `swinging` flag) is on
     // its attack cooldown — that's the window to drop the shield and strike. We track each mob's last
@@ -284,6 +288,7 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         meleeShieldStreak = 0;
         meleeHoldThisTick = false;
         retreatPinned = false;
+        lootDeadline = -1;
         // force-bow is a test toggle scoped to a single hunt — don't let it linger into the next one
         Baritone.settings().combatForceBow.value = false;
         baritone.getInputOverrideHandler().clearAllKeys();
@@ -553,6 +558,7 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
             case APPROACH -> doApproach();
             case STRIKE -> doStrike();
             case RECOVER -> doRecover();
+            case LOOT -> doLoot();
             case RETREAT -> doRetreat();
             default -> {
             }
@@ -1004,9 +1010,10 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         return !ctx.world().getBlockState(pos).getCollisionShape(ctx.world(), pos).isEmpty();
     }
 
-    /** Target died / despawned / walked out of range — re-acquire or search. */
+    /** Target died / despawned / walked out of range — loot the kill, re-acquire, or search. */
     private void onTargetLost() {
-        if (target != null && !target.isAlive()) {
+        boolean killed = target != null && !target.isAlive();
+        if (killed) {
             logDirect("Target down.");
         }
         // if we were mid-bow-draw, release the use key now — otherwise it stays held into the next
@@ -1014,7 +1021,68 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         stopBowDraw();
         target = null;
         lastGoalPos = null;
+        // Post-kill loot sweep (manual hunts only). Auto-defend never loots: it's a temporary
+        // process, so ceding control back to the frozen task the moment the threat dies is the
+        // whole point — walking over drops would extend the freeze for no survival benefit.
+        if (killed
+                && mode == Mode.MANUAL
+                && Baritone.settings().combatCollectLoot.value
+                && ctx.player() != null
+                && ctx.player().getInventory().getFreeSlot() != -1) {
+            lootDeadline = tickCount + Baritone.settings().combatLootTimeoutSeconds.value * 20L;
+            setState(State.LOOT);
+            return;
+        }
         setState(State.ACQUIRE);
+    }
+
+    /**
+     * Walk over the dropped loot from the kill (nearest first) before re-acquiring the next
+     * target. Exits to ACQUIRE when the loot is collected, gone, on fire/in lava, or the
+     * {@code combatLootTimeoutSeconds} deadline passes. A fresh threat appearing mid-loot
+     * cancels the sweep immediately — the defensive reflex in onTick has already re-targeted
+     * it, so we just re-engage.
+     */
+    private void doLoot() {
+        Player player = ctx.player();
+        if (player == null) {
+            setState(State.ACQUIRE);
+            return;
+        }
+        if (nearestHostile(REACTION_RANGE) != null) {
+            lootDeadline = -1;
+            setState(State.APPROACH); // threat already re-targeted by the defensive reflex
+            return;
+        }
+        if (tickCount > lootDeadline) {
+            lootDeadline = -1;
+            setState(State.ACQUIRE);
+            return;
+        }
+        double radius = Baritone.settings().combatLootRadius.value;
+        double rs = radius * radius;
+        ItemEntity nearest = null;
+        double nearestDist = Double.MAX_VALUE;
+        for (Entity e : ctx.entitiesStream().toList()) {
+            if (!(e instanceof ItemEntity item) || !item.isAlive()) {
+                continue;
+            }
+            if (item.isInLava() || item.isOnFire()) {
+                continue;
+            }
+            double dist = item.distanceToSqr(player);
+            if (dist <= rs && dist < nearestDist) {
+                nearest = item;
+                nearestDist = dist;
+            }
+        }
+        if (nearest == null) {
+            lootDeadline = -1; // all picked up (or burned)
+            setState(State.ACQUIRE);
+            return;
+        }
+        BlockPos pos = BlockPos.containing(nearest.getX(), nearest.getY(), nearest.getZ());
+        moveGoal = new GoalNear(pos, 1);
     }
 
     // ------------------------------------------------------------- behaviors
