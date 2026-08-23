@@ -38,7 +38,10 @@ import baritone.utils.BaritoneProcessHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -820,6 +823,13 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
             return;
         }
         if (bowDrawTicks >= Baritone.settings().combatBowDrawTicks.value) {
+            // Crossbows fire only when fully charged (25 ticks, less with Quick Charge) — releasing
+            // early just cancels the charge and wastes the draw. So for crossbows the setting's tick
+            // count is a lower bound; hold until the item reports itself charged.
+            ItemStack held = player.getMainHandItem();
+            if (held.getItem() instanceof CrossbowItem && !CrossbowItem.isCharged(held)) {
+                return; // keep drawing — checked again next tick
+            }
             // release to fire — releaseUse sends RELEASE_USE_ITEM (fires the arrow with the accumulated
             // charge) and clears the force-hold. This is the shot completing, not a cancel.
             releaseUse();
@@ -1379,18 +1389,42 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         }
     }
 
-    /** Is this stack a sword? Check the item id — works on both 26.1 (data-driven) and 1.21.1. */
+    /** NeoForge convention tag for mining tools (pickaxes, and modded drills etc.). */
+    private static final TagKey<Item> C_MINING_TOOLS = TagKey.create(
+            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/mining_tool"));
+
+    /** NeoForge convention tag for shears. */
+    private static final TagKey<Item> C_SHEARS = TagKey.create(
+            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/shear"));
+
+    /**
+     * Is this stack a sword? Tag-first ({@code minecraft:swords} covers modded swords that tag
+     * themselves), with the id-suffix check as fallback for untagged mods. Works on both
+     * 26.1 (data-driven) and 1.21.1.
+     */
     private static boolean isSword(ItemStack stack) {
+        if (stack.is(ItemTags.SWORDS)) {
+            return true;
+        }
         ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return key != null && key.getPath().endsWith("_sword");
     }
 
-    /** Tools we never want to swing in combat (mining/harvesting tools). */
+    /**
+     * Tools we never want to swing in combat (mining/harvesting tools). Tag-first: the vanilla
+     * tool tags and the {@code c:} convention tags catch multi-tools like paxels (tagged as both
+     * pickaxe and shovel) and modded drills, where an id-suffix check sees nothing. Axes are
+     * deliberately NOT excluded — they are legitimate weapons.
+     */
     private static boolean isUnwantedTool(ItemStack stack) {
+        if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS) || stack.is(ItemTags.HOES)
+                || stack.is(C_MINING_TOOLS) || stack.is(C_SHEARS)) {
+            return true;
+        }
         ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
         if (key == null) return false;
         String p = key.getPath();
-        // check _pickaxe before _axe (a pickaxe path ends in "axe" too)
+        // fallback for untagged mods; check _pickaxe before _axe (a pickaxe path ends in "axe" too)
         return p.endsWith("_pickaxe") || p.endsWith("_shovel") || p.endsWith("_hoe")
                 || p.endsWith("_shears") || p.endsWith("_brush");
     }
@@ -1459,10 +1493,15 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         weaponType = WeaponType.BOW;
     }
 
+    /**
+     * Find a ranged weapon in the hotbar. Tag-aware: {@code c:tools/ranged_weapon} covers vanilla
+     * bow + crossbow and modded ranged weapons that tag themselves; the {@code instanceof BowItem}
+     * check is the fallback for untagged mods. Mirrors {@link WeaponType#forStack}.
+     */
     private static int findBowSlot(Player player) {
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getItem(i);
-            if (!stack.isEmpty() && stack.getItem() instanceof net.minecraft.world.item.BowItem) {
+            if (!stack.isEmpty() && WeaponType.forStack(stack) == WeaponType.BOW) {
                 return i;
             }
         }

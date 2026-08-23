@@ -18,47 +18,81 @@
 package baritone.process.combat;
 
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 
 /**
  * How a held weapon wants to be used. Drives which strike routine the combat process runs.
  *
  * <ul>
  *   <li>{@link #MELEE} — swords/axes/etc. Swing on cooldown at melee reach. The default.</li>
- *   <li>{@link #BOW} — a bow. Drawn and released to fire arrows from range.</li>
+ *   <li>{@link #BOW} — a bow, crossbow, or modded ranged weapon. Drawn and released to fire
+ *       projectiles from range.</li>
  *   <li>{@link #VELOCITY_SCALED} — mace or a (modded) spear. Damage scales with the player's
  *       velocity, so the strike is timed to coincide with a fall (mace smash) or sprint momentum
  *       (spear) rather than swung on a fixed cooldown.</li>
  * </ul>
  *
- * <p>"Spear" is not a vanilla item, so it is matched by item id containing {@code spear}
- * (case-insensitive), which covers the common modded spears. The mace is matched by
- * {@link Items#MACE}.
+ * <p>Classification is <b>tag-first</b> so modded weapons work: the {@code c:} convention tags
+ * NeoForge ships ({@code c:tools/ranged_weapon}, {@code c:tools/spear}, {@code c:tools/mace})
+ * are the primary signal — well-behaved mods tag their weapons into them. Instance/id checks
+ * remain only as fallbacks for mods that don't tag. Note the vanilla trident is in both
+ * {@code c:tools/melee_weapon} and {@code c:tools/ranged_weapon}, but the spear check runs
+ * first and trident IS in {@code c:tools/spear}, so it classifies VELOCITY_SCALED — matching
+ * its momentum-scaled riptide-style playstyle.
  */
 public enum WeaponType {
     MELEE,
     BOW,
     VELOCITY_SCALED;
 
+    /** NeoForge convention tag for ranged weapons (bow, crossbow, trident, modded ranged). */
+    private static final TagKey<Item> RANGED_WEAPONS = TagKey.create(
+            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/ranged_weapon"));
+
+    /** NeoForge convention tag for spears (vanilla trident + modded spears). */
+    private static final TagKey<Item> SPEARS = TagKey.create(
+            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/spear"));
+
+    /** NeoForge convention tag for the mace. */
+    private static final TagKey<Item> MACES = TagKey.create(
+            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/mace"));
+
     /** Classify the weapon in a hotbar slot. Empty stacks are {@link #MELEE} (no weapon). */
     public static WeaponType forStack(ItemStack stack) {
         if (stack == null || stack.isEmpty()) {
             return MELEE;
         }
+        // mace first: fall-momentum smash
+        if (stack.is(MACES)) {
+            return VELOCITY_SCALED;
+        }
+        // spears next: trident + modded spears — momentum-scaled strikes
+        if (stack.is(SPEARS)) {
+            return VELOCITY_SCALED;
+        }
+        // ranged: vanilla bow + crossbow and any modded ranged weapon that tags itself
+        if (stack.is(RANGED_WEAPONS)) {
+            return BOW;
+        }
+        // fallbacks for untagged mods: vanilla class check, then item id heuristics
         if (stack.getItem() instanceof BowItem) {
             return BOW;
         }
-        if (stack.is(Items.MACE)) {
-            return VELOCITY_SCALED;
-        }
-        // modded spears: match by registered item id path (e.g. "minecraft:trident" is excluded by
-        // the "not trident" requirement — trident's id is "trident", which does not contain "spear")
         try {
-            String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
-            if (id != null && id.contains("spear")) {
-                return VELOCITY_SCALED;
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            if (id != null) {
+                String path = id.getPath();
+                if (path.endsWith("_bow") || path.equals("bow")) {
+                    return BOW;
+                }
+                if (path.contains("spear")) {
+                    return VELOCITY_SCALED;
+                }
             }
         } catch (Throwable ignored) {
             // registry lookup should never fail for a real item, but never crash combat over it
