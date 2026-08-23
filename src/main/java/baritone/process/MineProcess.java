@@ -77,6 +77,19 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         return filter != null;
     }
 
+    /**
+     * Whether the block at the given position is one of the blocks this process was asked to
+     * mine (i.e. it matches the {@link #filter}). Used to gate the FTB Ultimine keybind so
+     * vein-mining only triggers on requested blocks — not on blocks Baritone digs through
+     * while traveling to the target.
+     */
+    public boolean isMineTarget(BlockPos pos) {
+        if (filter == null || ctx.player() == null) {
+            return false;
+        }
+        return filter.has(BlockStateInterface.get(ctx, pos));
+    }
+
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
         if (desiredQuantity > 0) {
