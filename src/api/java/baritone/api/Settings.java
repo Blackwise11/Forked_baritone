@@ -979,6 +979,14 @@ public final class Settings {
     public final Setting<Integer> mineGoalUpdateInterval = new Setting<>(5);
 
     /**
+     * When true, {@code #mine} on an ore automatically includes its siblings:
+     * {@code iron_ore} also mines {@code deepslate_iron_ore}, {@code gold_ore} also
+     * {@code nether_gold_ore} (and deepslate, plus the reverse directions). Off restores
+     * the literal single-block behavior.
+     */
+    public final Setting<Boolean> mineFamilyExpansion = new Setting<>(true);
+
+    /**
      * After finding this many instances of the target block in the cache, it will stop expanding outward the chunk search.
      */
     public final Setting<Integer> maxCachedWorldScanCount = new Setting<>(10);
