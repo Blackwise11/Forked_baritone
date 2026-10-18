@@ -35,8 +35,8 @@ import baritone.process.combat.MobTactic;
 import baritone.process.combat.ProjectileThreat;
 import baritone.process.combat.WeaponType;
 import baritone.utils.BaritoneProcessHelper;
+import com.google.common.collect.Multimap;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
@@ -46,7 +46,10 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
@@ -857,7 +860,7 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         if (Baritone.settings().combatHumanizeAim.value && player.getAttackStrengthScale(0.5f) < 0.9f) {
             return;
         }
-        boolean mace = player.getMainHandItem().is(Items.MACE);
+        boolean mace = WeaponType.isMace(player.getMainHandItem());
         double horizSpeed = player.getDeltaMovement().multiply(1, 0, 1).length();
         boolean fastEnough = mace ? player.fallDistance > 0.0 : horizSpeed > 0.25;
         if (!fastEnough) {
@@ -1389,21 +1392,30 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         }
     }
 
-    /** NeoForge convention tag for mining tools (pickaxes, and modded drills etc.). */
+    /** Convention tags for mining tools (pickaxes, and modded drills etc.). */
     private static final TagKey<Item> C_MINING_TOOLS = TagKey.create(
-            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/mining_tool"));
+            Registries.ITEM, new ResourceLocation("c", "tools/mining_tool"));
+    private static final TagKey<Item> FORGE_PICKAXES = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/pickaxes"));
+    private static final TagKey<Item> FORGE_SHOVELS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/shovels"));
+    private static final TagKey<Item> FORGE_HOES = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/hoes"));
 
-    /** NeoForge convention tag for shears. */
+    /** Convention tags for shears. */
     private static final TagKey<Item> C_SHEARS = TagKey.create(
-            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/shear"));
+            Registries.ITEM, new ResourceLocation("c", "tools/shear"));
+    private static final TagKey<Item> FORGE_SHEARS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "shears"));
+    private static final TagKey<Item> FORGE_SWORDS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/swords"));
 
     /**
-     * Is this stack a sword? Tag-first ({@code minecraft:swords} covers modded swords that tag
-     * themselves), with the id-suffix check as fallback for untagged mods. Works on both
-     * 26.1 (data-driven) and 1.21.1.
+     * Is this stack a sword? Tag-first ({@code minecraft:swords} and {@code forge:tools/swords}
+     * cover modded swords that tag themselves), with the id-suffix check as fallback.
      */
     private static boolean isSword(ItemStack stack) {
-        if (stack.is(ItemTags.SWORDS)) {
+        if (stack.is(ItemTags.SWORDS) || stack.is(FORGE_SWORDS)) {
             return true;
         }
         ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
@@ -1412,13 +1424,14 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
 
     /**
      * Tools we never want to swing in combat (mining/harvesting tools). Tag-first: the vanilla
-     * tool tags and the {@code c:} convention tags catch multi-tools like paxels (tagged as both
-     * pickaxe and shovel) and modded drills, where an id-suffix check sees nothing. Axes are
-     * deliberately NOT excluded — they are legitimate weapons.
+     * tool tags and the {@code forge:}/{@code c:} convention tags catch multi-tools like paxels
+     * and modded drills, where an id-suffix check sees nothing. Axes are deliberately NOT
+     * excluded — they are legitimate weapons.
      */
     private static boolean isUnwantedTool(ItemStack stack) {
         if (stack.is(ItemTags.PICKAXES) || stack.is(ItemTags.SHOVELS) || stack.is(ItemTags.HOES)
-                || stack.is(C_MINING_TOOLS) || stack.is(C_SHEARS)) {
+                || stack.is(FORGE_PICKAXES) || stack.is(FORGE_SHOVELS) || stack.is(FORGE_HOES)
+                || stack.is(C_MINING_TOOLS) || stack.is(C_SHEARS) || stack.is(FORGE_SHEARS)) {
             return true;
         }
         ResourceLocation key = BuiltInRegistries.ITEM.getKey(stack.getItem());
@@ -1431,13 +1444,11 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
 
     /** Total attack-damage attribute on a stack (0 if none). */
     private static double attackDamage(ItemStack stack) {
-        var attrs = stack.get(DataComponents.ATTRIBUTE_MODIFIERS);
         double d = 0;
+        Multimap<Attribute, AttributeModifier> attrs = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
         if (attrs != null) {
-            for (var mod : attrs.modifiers()) {
-                if (mod.attribute().is(Attributes.ATTACK_DAMAGE.unwrapKey().get())) {
-                    d += mod.modifier().amount();
-                }
+            for (AttributeModifier mod : attrs.get(Attributes.ATTACK_DAMAGE)) {
+                d += mod.getAmount();
             }
         }
         return d;
@@ -1823,13 +1834,28 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
 
     // ------------------------------------------------------------- reach buff
 
+    /**
+     * Resolve the entity reach attribute at runtime. On Forge 1.20.1 this is {@code forge:entity_reach}
+     * ({@code ForgeMod.ENTITY_REACH}), looked up via the built-in attribute registry so common code
+     * does not need a direct Forge class import.
+     */
+    private static Attribute entityReachAttribute() {
+        Attribute forgeReach = BuiltInRegistries.ATTRIBUTE.get(new ResourceLocation("forge", "entity_reach"));
+        if (forgeReach != null) {
+            return forgeReach;
+        }
+        return BuiltInRegistries.ATTRIBUTE.get(new ResourceLocation("minecraft", "generic.entity_interaction_range"));
+    }
+
     private void applyReachBuff() {
         Player player = ctx.player();
         if (player == null) return;
         if (!Double.isNaN(originalReach)) return; // already buffed
         double reach = Baritone.settings().combatReach.value;
         if (reach <= 3.0) return; // no buff requested (vanilla reach)
-        var attr = player.getAttribute(Attributes.ENTITY_INTERACTION_RANGE);
+        Attribute reachAttr = entityReachAttribute();
+        if (reachAttr == null) return;
+        var attr = player.getAttribute(reachAttr);
         if (attr == null) return;
         originalReach = attr.getBaseValue();
         attr.setBaseValue(reach);
@@ -1849,7 +1875,9 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
         server.execute(() -> {
             ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
             if (sp == null) return;
-            var attr = sp.getAttribute(Attributes.ENTITY_INTERACTION_RANGE);
+            Attribute reachAttr = entityReachAttribute();
+            if (reachAttr == null) return;
+            var attr = sp.getAttribute(reachAttr);
             if (attr == null) return;
             if (Double.isNaN(originalReachServer)) {
                 originalReachServer = attr.getBaseValue();
@@ -1860,8 +1888,9 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
 
     private void restoreReach() {
         Player player = ctx.player();
-        if (player != null && !Double.isNaN(originalReach)) {
-            var attr = player.getAttribute(Attributes.ENTITY_INTERACTION_RANGE);
+        Attribute reachAttr = entityReachAttribute();
+        if (player != null && !Double.isNaN(originalReach) && reachAttr != null) {
+            var attr = player.getAttribute(reachAttr);
             if (attr != null) {
                 attr.setBaseValue(originalReach);
             }
@@ -1873,11 +1902,11 @@ public final class CombatProcess extends BaritoneProcessHelper implements IComba
             final double orig = Double.isNaN(originalReachServer) ? 3.0 : originalReachServer;
             originalReachServer = Double.NaN;
             MinecraftServer server = ctx.minecraft().getSingleplayerServer();
-            if (server != null) {
+            if (server != null && reachAttr != null) {
                 server.execute(() -> {
                     ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
                     if (sp != null) {
-                        var attr = sp.getAttribute(Attributes.ENTITY_INTERACTION_RANGE);
+                        var attr = sp.getAttribute(reachAttr);
                         if (attr != null) {
                             attr.setBaseValue(orig);
                         }

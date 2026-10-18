@@ -52,15 +52,19 @@ public final class CombatTags {
 
     /** Vanilla-and-modded hostile entity types beyond what {@code Monster} covers. */
     public static final TagKey<EntityType<?>> HOSTILES = TagKey.create(
-            Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("baritone", "hostiles"));
+            Registries.ENTITY_TYPE, new ResourceLocation("baritone", "hostiles"));
 
     /** Entities with a ranged attack worth shielding/strafing against. */
     public static final TagKey<EntityType<?>> RANGED = TagKey.create(
-            Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("baritone", "ranged"));
+            Registries.ENTITY_TYPE, new ResourceLocation("baritone", "ranged"));
 
     /** Common-tag convention equivalent of {@link #HOSTILES}, when present. */
     private static final TagKey<EntityType<?>> C_HOSTILES = TagKey.create(
-            Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath("c", "hostiles"));
+            Registries.ENTITY_TYPE, new ResourceLocation("c", "hostiles"));
+
+    /** Forge 1.20.1 tag convention equivalent of {@link #HOSTILES}, when present. */
+    private static final TagKey<EntityType<?>> FORGE_HOSTILES = TagKey.create(
+            Registries.ENTITY_TYPE, new ResourceLocation("forge", "hostiles"));
 
     private CombatTags() {}
 
@@ -73,7 +77,8 @@ public final class CombatTags {
                 || e instanceof Slime
                 || e instanceof Phantom
                 || e.getType().is(HOSTILES)
-                || e.getType().is(C_HOSTILES);
+                || e.getType().is(C_HOSTILES)
+                || e.getType().is(FORGE_HOSTILES);
     }
 
     /** Does this entity have a ranged attack (skeleton, pillager, witch, blaze, ghast, modded...)? */

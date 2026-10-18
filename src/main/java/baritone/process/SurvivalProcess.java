@@ -25,7 +25,6 @@ import baritone.api.process.PathingCommandType;
 import baritone.api.utils.input.Input;
 import baritone.utils.BaritoneProcessHelper;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.food.FoodProperties;
@@ -191,8 +190,8 @@ public final class SurvivalProcess extends BaritoneProcessHelper implements Abst
     private boolean isCurrentItemFood() {
         if (ctx.player() == null) return false;
         ItemStack stack = ctx.player().getMainHandItem();
-        FoodProperties food = stack.get(DataComponents.FOOD);
-        return food != null && food.nutrition() > 0;
+        FoodProperties food = stack.getItem().getFoodProperties();
+        return food != null && food.getNutrition() > 0;
     }
 
     /**
@@ -205,8 +204,8 @@ public final class SurvivalProcess extends BaritoneProcessHelper implements Abst
         for (int i = 0; i < 9; i++) {
             ItemStack stack = ctx.player().getInventory().getItem(i);
             if (stack.isEmpty()) continue;
-            FoodProperties food = stack.get(DataComponents.FOOD);
-            if (food != null && food.nutrition() > 0) {
+            FoodProperties food = stack.getItem().getFoodProperties();
+            if (food != null && food.getNutrition() > 0) {
                 return i;
             }
         }

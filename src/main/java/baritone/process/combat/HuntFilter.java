@@ -79,7 +79,7 @@ public sealed interface HuntFilter {
         // accept "zombie" or "minecraft:zombie"
         ResourceLocation id = s.contains(":")
                 ? ResourceLocation.tryParse(s)
-                : ResourceLocation.fromNamespaceAndPath("minecraft", s);
+                : ResourceLocation.tryParse("minecraft:" + s);
         if (id == null) return Optional.empty();
         return BuiltInRegistries.ENTITY_TYPE.getOptional(id)
                 .map(type -> (HuntFilter) new ByType(type));

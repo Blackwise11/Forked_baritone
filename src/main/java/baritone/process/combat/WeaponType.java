@@ -22,8 +22,10 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TridentItem;
 
 /**
  * How a held weapon wants to be used. Drives which strike routine the combat process runs.
@@ -37,30 +39,50 @@ import net.minecraft.world.item.ItemStack;
  *       (spear) rather than swung on a fixed cooldown.</li>
  * </ul>
  *
- * <p>Classification is <b>tag-first</b> so modded weapons work: the {@code c:} convention tags
- * NeoForge ships ({@code c:tools/ranged_weapon}, {@code c:tools/spear}, {@code c:tools/mace})
- * are the primary signal — well-behaved mods tag their weapons into them. Instance/id checks
- * remain only as fallbacks for mods that don't tag. Note the vanilla trident is in both
- * {@code c:tools/melee_weapon} and {@code c:tools/ranged_weapon}, but the spear check runs
- * first and trident IS in {@code c:tools/spear}, so it classifies VELOCITY_SCALED — matching
- * its momentum-scaled riptide-style playstyle.
+ * <p>Classification is <b>tag-first</b> so modded weapons work: both {@code forge:} (1.20.1 Forge)
+ * and {@code c:} convention tags are checked first, with instance/id checks as fallbacks.
  */
 public enum WeaponType {
     MELEE,
     BOW,
     VELOCITY_SCALED;
 
-    /** NeoForge convention tag for ranged weapons (bow, crossbow, trident, modded ranged). */
-    private static final TagKey<Item> RANGED_WEAPONS = TagKey.create(
-            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/ranged_weapon"));
+    /** Convention tags for ranged weapons (bow, crossbow, modded ranged). */
+    private static final TagKey<Item> C_RANGED_WEAPONS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("c", "tools/ranged_weapon"));
+    private static final TagKey<Item> FORGE_BOWS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/bows"));
+    private static final TagKey<Item> FORGE_CROSSBOWS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/crossbows"));
 
-    /** NeoForge convention tag for spears (vanilla trident + modded spears). */
-    private static final TagKey<Item> SPEARS = TagKey.create(
-            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/spear"));
+    /** Convention tags for spears (vanilla trident + modded spears). */
+    private static final TagKey<Item> C_SPEARS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("c", "tools/spear"));
+    private static final TagKey<Item> FORGE_TRIDENTS = TagKey.create(
+            Registries.ITEM, new ResourceLocation("forge", "tools/tridents"));
 
-    /** NeoForge convention tag for the mace. */
-    private static final TagKey<Item> MACES = TagKey.create(
-            Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", "tools/mace"));
+    /** Convention tags for maces. */
+    private static final TagKey<Item> C_MACES = TagKey.create(
+            Registries.ITEM, new ResourceLocation("c", "tools/mace"));
+
+    /** True if the stack is a mace (by tag or item id). */
+    public static boolean isMace(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return false;
+        }
+        if (stack.is(C_MACES)) {
+            return true;
+        }
+        try {
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+            if (id != null) {
+                String path = id.getPath();
+                return path.equals("mace") || path.endsWith("_mace");
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
 
     /** Classify the weapon in a hotbar slot. Empty stacks are {@link #MELEE} (no weapon). */
     public static WeaponType forStack(ItemStack stack) {
@@ -68,26 +90,26 @@ public enum WeaponType {
             return MELEE;
         }
         // mace first: fall-momentum smash
-        if (stack.is(MACES)) {
+        if (isMace(stack)) {
             return VELOCITY_SCALED;
         }
         // spears next: trident + modded spears — momentum-scaled strikes
-        if (stack.is(SPEARS)) {
+        if (stack.is(C_SPEARS) || stack.is(FORGE_TRIDENTS) || stack.getItem() instanceof TridentItem) {
             return VELOCITY_SCALED;
         }
         // ranged: vanilla bow + crossbow and any modded ranged weapon that tags itself
-        if (stack.is(RANGED_WEAPONS)) {
+        if (stack.is(C_RANGED_WEAPONS) || stack.is(FORGE_BOWS) || stack.is(FORGE_CROSSBOWS)) {
             return BOW;
         }
         // fallbacks for untagged mods: vanilla class check, then item id heuristics
-        if (stack.getItem() instanceof BowItem) {
+        if (stack.getItem() instanceof BowItem || stack.getItem() instanceof CrossbowItem) {
             return BOW;
         }
         try {
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
             if (id != null) {
                 String path = id.getPath();
-                if (path.endsWith("_bow") || path.equals("bow")) {
+                if (path.endsWith("_bow") || path.equals("bow") || path.endsWith("_crossbow")) {
                     return BOW;
                 }
                 if (path.contains("spear")) {

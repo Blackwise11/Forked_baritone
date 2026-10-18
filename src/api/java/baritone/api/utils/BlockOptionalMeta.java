@@ -255,7 +255,7 @@ public final class BlockOptionalMeta {
                                     .create(null),
                             stack -> items.add(stack.getItem())
                     );
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     e.printStackTrace();
                 }
                 return items;
@@ -275,6 +275,12 @@ public final class BlockOptionalMeta {
         public FeatureFlagSet enabledFeatures() {
             assert client.level != null;
             return client.level.enabledFeatures();
+        }
+
+        @Override
+        public net.minecraft.core.RegistryAccess registryAccess() {
+            assert client.level != null;
+            return client.level.registryAccess();
         }
 
         public static ServerLevelStub fastCreate() {

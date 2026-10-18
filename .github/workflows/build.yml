@@ -1,7 +1,7 @@
-# NeoForge build check — verifies the primary target compiles cleanly on every push.
+# Forge 1.20.1 build check — verifies the primary target compiles cleanly on every push.
 # Jars land in dist/ and are uploaded as artifacts.
 
-name: Build (NeoForge)
+name: Build (Forge 1.20.1)
 
 on:
   push:
@@ -17,10 +17,10 @@ jobs:
       with:
         fetch-depth: 0  # version string comes from `git describe --always --tags --first-parent`
 
-    - name: Set up JDK 21
+    - name: Set up JDK 17
       uses: actions/setup-java@v5
       with:
-        java-version: '21'
+        java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
@@ -28,10 +28,10 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build with Gradle
-      run: ./gradlew :neoforge:build --console=plain
+      run: ./gradlew :forge:build --console=plain
 
     - name: Archive dist jars
       uses: actions/upload-artifact@v7
       with:
-        name: neoforge-dist
+        name: forge-dist
         path: dist/

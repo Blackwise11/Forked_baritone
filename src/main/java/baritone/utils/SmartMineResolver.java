@@ -106,7 +106,7 @@ public final class SmartMineResolver {
         // 2. Exact block id
         ResourceLocation id = s.contains(":")
                 ? ResourceLocation.tryParse(s)
-                : ResourceLocation.fromNamespaceAndPath("minecraft", s);
+                : ResourceLocation.tryParse("minecraft:" + s);
         if (id != null) {
             Optional<Block> block = BuiltInRegistries.BLOCK.getOptional(id);
             if (block.isPresent()) {
@@ -173,14 +173,15 @@ public final class SmartMineResolver {
         }
     }
 
-    /** All blocks in the {@code c:ores} common tag, falling back to {@code *_ore} ids. */
+    /** All blocks in the {@code forge:ores} or {@code c:ores} tags, falling back to {@code *_ore} ids. */
     private static List<Block> oreBlocks() {
-        TagKey<Block> cOres = TagKey.create(Registries.BLOCK, ResourceLocation.fromNamespaceAndPath("c", "ores"));
-        List<Block> fromTag = tagBlocks(cOres);
+        TagKey<Block> forgeOres = TagKey.create(Registries.BLOCK, new ResourceLocation("forge", "ores"));
+        TagKey<Block> cOres = TagKey.create(Registries.BLOCK, new ResourceLocation("c", "ores"));
+        List<Block> fromTag = tagBlocks(forgeOres, cOres);
         if (!fromTag.isEmpty()) {
             return fromTag;
         }
-        // No common tag in this environment (unexpected on NeoForge, possible elsewhere)
+        // No common tag in this environment
         return BuiltInRegistries.BLOCK.keySet().stream()
                 .filter(rl -> rl.getPath().endsWith("_ore"))
                 .map(BuiltInRegistries.BLOCK::get)
@@ -233,7 +234,11 @@ public final class SmartMineResolver {
     }
 
     private static boolean addSibling(String path, List<Block> out) {
-        Optional<Block> block = BuiltInRegistries.BLOCK.getOptional(ResourceLocation.fromNamespaceAndPath("minecraft", path));
+        ResourceLocation siblingId = ResourceLocation.tryParse("minecraft:" + path);
+        if (siblingId == null) {
+            return false;
+        }
+        Optional<Block> block = BuiltInRegistries.BLOCK.getOptional(siblingId);
         if (block.isPresent() && !out.contains(block.get())) {
             out.add(block.get());
             return true;

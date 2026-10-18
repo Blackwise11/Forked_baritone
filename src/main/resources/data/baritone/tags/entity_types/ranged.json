@@ -3,7 +3,10 @@
   "values": [
     "minecraft:skeleton",
     "minecraft:stray",
-    "minecraft:bogged",
+    {
+      "id": "minecraft:bogged",
+      "required": false
+    },
     "minecraft:pillager",
     "minecraft:witch",
     "minecraft:blaze",
